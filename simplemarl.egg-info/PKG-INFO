@@ -18,3 +18,5 @@ Requires-Dist: numpy
 Requires-Dist: torch
 Requires-Dist: gymnasium
 Requires-Dist: pettingzoo
+Requires-Dist: tyro
+Requires-Dist: tensorboard

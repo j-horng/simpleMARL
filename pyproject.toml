@@ -37,4 +37,6 @@ dependencies = [
     "torch",
     "gymnasium",
     "pettingzoo",
+    "tyro",
+    "tensorboard"
 ]

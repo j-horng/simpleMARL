@@ -59,7 +59,7 @@ class Args:
     """if toggled, cuda will be enabled by default"""
     track: bool = False
     """if toggled, this experiment will be tracked with Weights and Biases"""    
-    env_id: str = "CPPyquaticus"
+    env_id: str = "Pyquaticus"
     """the id of the environment"""
     total_timesteps: int = 15000000
     """total timesteps of the experiments"""
