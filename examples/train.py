@@ -80,16 +80,18 @@ class Args:
     """the mini-batch size (computed in runtime)"""
     num_iterations: int = 0
     """the number of iterations (computed in runtime)"""
-    to_train: list = field(default_factory=lambda: ['agent_0', 'agent_1', 
-                                                    'agent_2', 'agent_3', 
-                                                    'agent_4', 'agent_5'])
+    #to_train: list = field(default_factory=lambda: ['agent_0', 'agent_1', 
+                                     #               'agent_2', 'agent_3', 
+                                    #                'agent_4', 'agent_5'])
     """the ID's of agents to which will be trained"""
-    policies:dict = field(default_factory=lambda:{'agent_0':"init_ppo", 
-                                                  'agent_1':"init_ppo", 
-                                                  'agent_2':"init_ppo",
-                                                  'agent_3':"agent_2", 
-                                                  'agent_4':'agent_1', 
-                                                  'agent_5':'agent_0'}) #Must contain policy for every agent in pettingzooenv
+    to_train:list = ['agent_0','agent_1','agent_2','agent_3','agent_4','agent_5']
+    training_type:str = "IPPO" # Options 'IPPO'(Individual PPO), 'MAPPO' (Centralized Critic Decentralized Agents)
+    #policies:dict = field(default_factory=lambda:{'agent_0':"init_ppo", 
+    #                                              'agent_1':"init_ppo", 
+    #                                              'agent_2':"init_ppo",
+    #                                              'agent_3':"agent_2", 
+    #                                              'agent_4':'agent_1', 
+     #                                             'agent_5':'agent_0'}) #Must contain policy for every agent in pettingzooenv
     device:str="cpu"
 def make_env():
     def thunk():
