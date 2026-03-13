@@ -2,6 +2,7 @@ import numpy as np
 import torch
 from gymnasium.spaces import Box
 
+#Main Buffer Class for Individual Algorithms
 class Buffer:
     def __init__(self, obs_space, act_space, num_envs, num_steps):
         #Variables required for setting buffer sizes
@@ -22,16 +23,8 @@ class Buffer:
         self.returns = torch.zeros((num_steps, num_envs), dtype=torch.float32)
         self.next_done = torch.zeros((num_envs, ), dtype=torch.float32)
         self.next_value = torch.zeros((num_envs,), dtype=torch.float32)
-    def add(self, data:dict):
-        #TODO: Add safety check ensure dimensions are the same right now assumes each add is of size (num_envs)
-        #TODO: Add check to make sure each addition contains obs, acts, rews, dones, actions, and values
-        for k, v in data.items():
-            if hasattr(self, k):
-                #TODO Maybe don't copy, and instead pass in reference
-                if isinstance(v, np.ndarray):
-                    getattr(self,k)[self.cur_step] = torch.from_numpy(v).detach().cpu()
-                else:
-                    getattr(self,k)[self.cur_step].detach().cpu().copy_(v)
+    def full(self,):
+        return self.cur_step >= self.num_steps
     def get_step(self,):
         return self.cur_step
     def step(self,):

@@ -10,11 +10,14 @@ import numpy as np
 import torch 
 import random 
 
-#Buffer/ML algorithms
+#EnvRunners/ML algorithms
 from simplemarl.vecenv import SerialVecEnv, ParallelVecEnv, SubProcVecEnv
 from simplemarl.algorithms import ppo
-from simplemarl.buffer import Buffer
 from simplemarl.parallel_pet_wrapper import GymnasiumToPettingZooParallel
+#Buffers
+from simplemarl.buffer import Buffer
+from simplemarl.dummy_buffer import DummyBuffer
+
 
 #Pyquaticus Environment Imports
 from pyquaticus import pyquaticus_v0
@@ -87,9 +90,9 @@ class Args:
     policies:dict = field(default_factory=lambda:{'agent_0':"init_ppo", 
                                                   'agent_1':"init_ppo", 
                                                   'agent_2':"init_ppo",
-                                                  'agent_3':"agent_2", 
-                                                  'agent_4':'agent_1', 
-                                                  'agent_5':'agent_0'}) #Must contain policy for every agent in pettingzooenv
+                                                  'agent_3':"init_ppo", 
+                                                  'agent_4':'init_ppo', 
+                                                  'agent_5':'init_ppo'}) #Must contain policy for every agent in pettingzooenv
     device:str="cpu"
 def make_env():
     def thunk():
@@ -108,7 +111,7 @@ if __name__ == "__main__":
     args.batch_size = int(args.num_workers*args.num_envs * args.num_steps)
     args.num_minibatches = int(args.batch_size // args.minibatch_size)
     args.num_iterations = args.total_timesteps // args.batch_size
-    avg = {}
+    
     random.seed(args.seed)
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
@@ -120,8 +123,10 @@ if __name__ == "__main__":
     act_spaces = env.action_spaces
     buffers = {}
     policies = {}
+    
     logs = {}
     sw = {}
+    avg = {}
 
     # Initialize Model Paths if they don't already exist
     if not os.path.exists(os.path.dirname(__file__) + '/'+args.save_path):
@@ -148,6 +153,14 @@ if __name__ == "__main__":
                 "hyperparameters",
                 "|param|value|\n|-|-|\n%s" % ("\n".join([f"|{key}|{value}|" for key, value in vars(args).items()])),
             global_step=0, 
+            )
+        else:
+            buffers[aid] = DummyBuffer(obs_spaces[aid], act_spaces[aid], args.num_envs*args.num_workers, args.num_steps)
+            sw[aid] = SummaryWriter(f"runs/{aid}")
+            sw[aid].add_text(
+                "hyperparameters",
+                "|param|value|\n|-|-|\n%s" % ("\n".join([f"|{key}|{value}|" for key, value in vars(args).items()])),
+            global_step=0,
             )
         avg[aid] = 0.0
         #TODO add loading PPO and DQN algorithms
