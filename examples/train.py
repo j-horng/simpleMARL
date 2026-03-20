@@ -24,7 +24,7 @@ from pyquaticus.envs.competition_pyquaticus import CompPyquaticusEnv
 
 
 def run_game(env_fn, policies, num_games):
-    env = env_fn()()
+    env = env_fn() # changed from env_fn()() to env_fn()
     rews = {aid:0.0 for aid in policies}
     for i in range(num_games):
         terms = {'agent_0':False}
@@ -61,13 +61,13 @@ class Args:
     """if toggled, this experiment will be tracked with Weights and Biases"""    
     env_id: str = "Pyquaticus"
     """the id of the environment"""
-    total_timesteps: int = 15000000
+    total_timesteps: int = 240000 # original value is 15000000, changed for testing
     """total timesteps of the experiments"""
     num_envs: int = 1
     """the number of parallel game environments"""
-    num_workers: int = 40
+    num_workers: int = 4 # original value 20
     """Number of workers running num_envs environments"""
-    num_steps: int = 600
+    num_steps: int = 1200
     """the number of steps to run in each environment per policy rollout"""
     minibatch_size: int = 120
     """the number of mini-batches"""
@@ -80,29 +80,40 @@ class Args:
     """the mini-batch size (computed in runtime)"""
     num_iterations: int = 0
     """the number of iterations (computed in runtime)"""
-    to_train: list = field(default_factory=lambda: ['agent_0', 'agent_1', 
-                                                    'agent_2', 'agent_3', 
-                                                    'agent_4', 'agent_5'])
-    """the ID's of agents to which will be trained"""
-    policies:dict = field(default_factory=lambda:{'agent_0':"init_ppo", 
-                                                  'agent_1':"init_ppo", 
-                                                  'agent_2':"init_ppo",
-                                                  'agent_3':"agent_2", 
-                                                  'agent_4':'agent_1', 
-                                                  'agent_5':'agent_0'}) #Must contain policy for every agent in pettingzooenv
+    to_train: list = field(default_factory=lambda: ['agent_0', 'agent_1', 'agent_2'])
+    """Agent IDs that will be trained (attackers)."""
+
+    fixed_agents: list = field(default_factory=lambda: ['agent_3', 'agent_4', 'agent_5'])
+    """Agent IDs that run a fixed policy (defenders)."""
+
+    fixed_defender_ckpt: str = ""
+    """Optional path to a saved defender policy checkpoint to load (applies to agent_3 policy, shared by agent_4/agent_5)."""
+
+    policies: dict = field(
+        default_factory=lambda: {
+            # Attackers (trainable): independent PPO policies by default
+            'agent_0': "init_ppo",
+            'agent_1': "init_ppo",
+            'agent_2': "init_ppo",
+            # Defenders (fixed): share a single PPO policy (agent_3)
+            'agent_3': "init_ppo",
+            'agent_4': "agent_3",
+            'agent_5': "agent_3",
+        }
+    )  # Must contain policy for every agent in the PettingZoo env
     device:str="cpu"
 def make_env():
-    def thunk():
-        import pyquaticus.utils.rewards as rew
-        rews = {'agent_0':rew.caps_and_grabs,
-                'agent_1':rew.caps_and_grabs,
-                'agent_2':rew.caps_and_grabs,
-                'agent_3':rew.caps_and_grabs,
-                'agent_4':rew.caps_and_grabs,
-                'agent_5':rew.caps_and_grabs}
-        env = CompPyquaticusEnv(render_mode=None, config_dict=mctf_config, reward_config=rews)
-        return env
-    return thunk
+    #def thunk():
+    import pyquaticus.utils.rewards as rew
+    rews = {'agent_0':rew.caps_and_grabs,
+            'agent_1':rew.caps_and_grabs,
+            'agent_2':rew.caps_and_grabs,
+            'agent_3':rew.caps_and_grabs,
+            'agent_4':rew.caps_and_grabs,
+            'agent_5':rew.caps_and_grabs}
+    env = CompPyquaticusEnv(render_mode=None, config_dict=mctf_config, reward_config=rews)
+    return env
+    #return thunk
 if __name__ == "__main__":
     args = tyro.cli(Args)
     args.batch_size = int(args.num_workers*args.num_envs * args.num_steps)
@@ -115,7 +126,7 @@ if __name__ == "__main__":
     torch.backends.cudnn.deterministic = args.torch_deterministic
 
     global_step = 0
-    env = make_env()()
+    env = make_env() #
     obs_spaces = env.observation_spaces
     act_spaces = env.action_spaces
     buffers = {}
@@ -151,7 +162,18 @@ if __name__ == "__main__":
             )
         avg[aid] = 0.0
         #TODO add loading PPO and DQN algorithms
-    envs = SubProcVecEnv(make_env(), args.num_workers, args.num_envs)
+
+    # Optionally load a fixed defender checkpoint (shared defender policy is agent_3)
+    if args.fixed_defender_ckpt:
+        state = torch.load(args.fixed_defender_ckpt, map_location=args.device)
+        policies['agent_3'].load_state_dict(state)
+
+    # Freeze fixed agents' policies (prevents accidental optimizer usage / grad tracking)
+    for aid in args.fixed_agents:
+        policies[aid].eval()
+        for p in policies[aid].parameters():
+            p.requires_grad_(False)
+    envs = SubProcVecEnv(make_env, args.num_workers, args.num_envs)
 
     for iteration in range(1, args.num_iterations+1):
         start_time = time.time()
@@ -170,7 +192,11 @@ if __name__ == "__main__":
             actions = {}
             for aid in policies:
                 with torch.no_grad():
-                    act, logprob, _, value = policies[aid].get_action_and_value(buffers[aid].observations[buffers[aid].get_step()])
+                    if aid in buffers:
+                        obs_t = buffers[aid].observations[buffers[aid].get_step()]
+                    else:
+                        obs_t = torch.from_numpy(rets[aid]["obs"])
+                    act, logprob, _, value = policies[aid].get_action_and_value(obs_t)
                     if aid in buffers:
                         buffers[aid].actions[buffers[aid].get_step()].copy_(act.squeeze(-1)) #{'actions':act.squeeze(-1), 'logprobs':logprob.squeeze(-1), 'values':value.squeeze(-1)})
                         buffers[aid].logprobs[buffers[aid].get_step()].copy_(logprob.squeeze(-1))

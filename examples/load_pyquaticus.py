@@ -38,8 +38,9 @@ def make_env():
             'agent_3':rew.caps_and_grabs,
             'agent_4':rew.caps_and_grabs,
             'agent_5':rew.caps_and_grabs}
-    mc_config = mctf_config
+    mc_config = dict(mctf_config)
     mc_config['render_saving'] = True
+    mc_config['max_time'] = 50000.0
     env = CompPyquaticusEnv(render_mode='human', config_dict=mctf_config, reward_config=rews)
     return env
 
@@ -81,16 +82,45 @@ if __name__ == "__main__":
     parser.add_argument('agent_0', help='Please enter the path to the model you would like to load in Ex. ./ray_test/checkpoint_00001/policies/agent-0-policy')
     parser.add_argument('agent_1', help='Please enter the path to the model you would like to load in Ex. ./ray_test/checkpoint_00001/policies/agent-1-policy') 
     parser.add_argument('agent_2', help='Please enter the path to the model you would like to load in Ex. ./ray_test/checkpoint_00001/policies/agent-1-policy') 
+    parser.add_argument('--defender', default="", help='Optional path to a defender checkpoint. If set, agent_3/agent_4/agent_5 will share this fixed defender policy. If omitted, defenders mirror attackers (agent_3=agent_0, agent_4=agent_1, agent_5=agent_2).')
+    parser.add_argument('--static_defenders', action='store_true', help='If set, defenders (agent_3/agent_4/agent_5) will take a constant zero/no-op action every step (they will not move). Overrides --defender.')
+    parser.add_argument('--one_defender', action='store_true', help='If set, only agent_3 will be an active defender; agent_4 and agent_5 will be static. Useful for testing attacker flag captures.')
+    parser.add_argument('--stack_defenders', action='store_true', help='If set, all defenders (agent_3/agent_4/agent_5) will spawn at the same fixed location at reset. Best used with --static_defenders to keep them immobile.')
+    parser.add_argument('--defender_spawn_xy', type=float, nargs=2, default=None, metavar=('X', 'Y'), help='Override defender spawn location used by --stack_defenders. Coordinates are in env units (meters).')
     args = parser.parse_args()
     env = make_env()
-    policies = {'agent_0':PPO(env.observation_space('agent_0'), env.action_space('agent_0')),
-                'agent_1':PPO(env.observation_space('agent_1'), env.action_space('agent_1')),
-                'agent_2':PPO(env.observation_space('agent_2'), env.action_space('agent_2')),
-                }
+    policies = {
+        'agent_0': PPO(env.observation_space('agent_0'), env.action_space('agent_0')),
+        'agent_1': PPO(env.observation_space('agent_1'), env.action_space('agent_1')),
+        'agent_2': PPO(env.observation_space('agent_2'), env.action_space('agent_2')),
+    }
+    defender_policy = PPO(env.observation_space('agent_3'), env.action_space('agent_3'))
     policies['agent_0'].load_state_dict(torch.load(args.agent_0))
     policies['agent_1'].load_state_dict(torch.load(args.agent_1))
     policies['agent_2'].load_state_dict(torch.load(args.agent_2))
-    obs,_ = env.reset()
+    if args.defender:
+        defender_policy.load_state_dict(torch.load(args.defender))
+
+    reset_options = None
+    if args.stack_defenders:
+        if args.defender_spawn_xy is not None:
+            # Use plain Python types (not numpy arrays). Pyquaticus init_dict parsing
+            # compares to None with `==`, which breaks on numpy arrays.
+            spawn_xy = [float(args.defender_spawn_xy[0]), float(args.defender_spawn_xy[1])]
+        else:
+            # Default: near the red side, centered vertically.
+            spawn_xy = [float(env.env_size[0] - 10.0), float(env.env_size[1] / 2.0)]
+        init_dict = {
+            "agent_position": {
+                "agent_3": list(spawn_xy),
+                "agent_4": list(spawn_xy),
+                "agent_5": list(spawn_xy),
+            },
+            "agent_pos_unit": "m",
+        }
+        reset_options = {"init_dict": init_dict}
+
+    obs, _ = env.reset(options=reset_options)
     terms = {'agent_0':False}
     rsum = {'agent_0':0.0, 'agent_1':0.0, 'agent_2':0.0, 'agent_3':0.0, 'agent_4':0.0, 'agent_5':0.0}
     steps = 0
@@ -103,12 +133,36 @@ if __name__ == "__main__":
         actions = {}
         for aid in obs:
             with torch.no_grad():
-                if aid == "agent_0" or aid =="agent_3":
+                if aid == "agent_0":
                     actions[aid] = policies["agent_0"].get_action_and_value(torch.from_numpy(obs[aid]))[0].detach().cpu().numpy()
-                elif aid == "agent_1" or aid =="agent_4":
+                elif aid == "agent_1":
                     actions[aid] = policies["agent_1"].get_action_and_value(torch.from_numpy(obs[aid]))[0].detach().cpu().numpy()
-                elif aid == "agent_2" or aid =="agent_5":
+                elif aid == "agent_2":
                     actions[aid] = policies["agent_2"].get_action_and_value(torch.from_numpy(obs[aid]))[0].detach().cpu().numpy()
+                elif aid in ("agent_3", "agent_4", "agent_5"):
+                    # If we only want one active defender, keep agent_4/5 static.
+                    if args.one_defender and aid in ("agent_4", "agent_5"):
+                        act_space = env.action_space(aid)
+                        if hasattr(act_space, "n"):
+                            actions[aid] = 0
+                        else:
+                            actions[aid] = np.zeros(act_space.shape, dtype=np.float32)
+                        continue
+
+                    if args.static_defenders:
+                        act_space = env.action_space(aid)
+                        if hasattr(act_space, "n"):
+                            actions[aid] = 0
+                        else:
+                            actions[aid] = np.zeros(act_space.shape, dtype=np.float32)
+                    elif args.defender:
+                        actions[aid] = defender_policy.get_action_and_value(torch.from_numpy(obs[aid]))[0].detach().cpu().numpy()
+                    elif aid == "agent_3":
+                        actions[aid] = policies["agent_0"].get_action_and_value(torch.from_numpy(obs[aid]))[0].detach().cpu().numpy()
+                    elif aid == "agent_4":
+                        actions[aid] = policies["agent_1"].get_action_and_value(torch.from_numpy(obs[aid]))[0].detach().cpu().numpy()
+                    else:
+                        actions[aid] = policies["agent_2"].get_action_and_value(torch.from_numpy(obs[aid]))[0].detach().cpu().numpy()
         obs, rews, terms, truncs, _ = env.step(actions)
         print(f"Rewards: {rews}")
         for aid in rsum:
