@@ -111,7 +111,9 @@ def make_env():
             'agent_3':rew.caps_and_grabs,
             'agent_4':rew.caps_and_grabs,
             'agent_5':rew.caps_and_grabs}
-    env = CompPyquaticusEnv(render_mode=None, config_dict=mctf_config, reward_config=rews)
+    mc_config = dict(mctf_config)
+    mc_config["max_time"] = 300.0  # 5 minutes
+    env = CompPyquaticusEnv(render_mode=None, config_dict=mc_config, reward_config=rews)
     return env
     #return thunk
 if __name__ == "__main__":
