@@ -91,22 +91,18 @@ class Args:
                                                   'agent_4':'agent_1', 
                                                   'agent_5':'agent_0'}) #Must contain policy for every agent in pettingzooenv
     device:str="cpu"
-
-
-def _comp_pyquaticus_env_fn():
-    """Module-level factory so env_fn is picklable on Windows (multiprocessing spawn)."""
-    import pyquaticus.utils.rewards as rew
-    rews = {'agent_0': rew.caps_and_grabs,
-            'agent_1': rew.caps_and_grabs,
-            'agent_2': rew.caps_and_grabs,
-            'agent_3': rew.caps_and_grabs,
-            'agent_4': rew.caps_and_grabs,
-            'agent_5': rew.caps_and_grabs}
-    return CompPyquaticusEnv(render_mode=None, config_dict=mctf_config, reward_config=rews)
-
-
 def make_env():
-    return _comp_pyquaticus_env_fn
+    def thunk():
+        import pyquaticus.utils.rewards as rew
+        rews = {'agent_0':rew.caps_and_grabs,
+                'agent_1':rew.caps_and_grabs,
+                'agent_2':rew.caps_and_grabs,
+                'agent_3':rew.caps_and_grabs,
+                'agent_4':rew.caps_and_grabs,
+                'agent_5':rew.caps_and_grabs}
+        env = CompPyquaticusEnv(render_mode=None, config_dict=mctf_config, reward_config=rews)
+        return env
+    return thunk
 if __name__ == "__main__":
     args = tyro.cli(Args)
     args.batch_size = int(args.num_workers*args.num_envs * args.num_steps)
