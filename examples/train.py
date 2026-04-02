@@ -61,11 +61,11 @@ class Args:
     """if toggled, this experiment will be tracked with Weights and Biases"""    
     env_id: str = "Pyquaticus"
     """the id of the environment"""
-    total_timesteps: int = 240000 # original value is 15000000, changed for testing
+    total_timesteps: int = 150000 # original value is 15000000, changed for testing
     """total timesteps of the experiments"""
     num_envs: int = 1
     """the number of parallel game environments"""
-    num_workers: int = 4 # original value 20
+    num_workers: int = 20 # original value 20, change for testing
     """Number of workers running num_envs environments"""
     num_steps: int = 1200
     """the number of steps to run in each environment per policy rollout"""
