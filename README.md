@@ -90,3 +90,8 @@ Now that the environment is set up, you can begin training your reinforcement le
     ```shell
     python load_pyquaticus.py ./models/agent_0/step_XX ./models/agent_1/step_XX ./models/agent_2/step_XX
     ```
+## Testing/Training Models
+
+Currently utilizing ''' testing ''' branch
+
+
