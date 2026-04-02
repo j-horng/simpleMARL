@@ -92,6 +92,13 @@ Now that the environment is set up, you can begin training your reinforcement le
     ```
 ## Testing/Training Models
 
-Currently utilizing ''' testing ''' branch
+Currently utilizing `testing` branch for training and test. 
+
+Inside `train.py`:
+
+Changing the number in `total_timestamps: int=` changes number of steps. Increase/decrease for testing needs. 
+`num_workers: int=` is number of separate OS processes running. Change depending on CPU core limits. 
+
+
 
 
