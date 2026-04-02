@@ -1,3 +1,4 @@
+README.md
 pyproject.toml
 simplemarl/__init__.py
 simplemarl/buffer.py
