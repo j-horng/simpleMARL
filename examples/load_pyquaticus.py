@@ -18,6 +18,8 @@ from pyquaticus import pyquaticus_v0
 from pyquaticus.mctf26_config import config_dict_std as mctf_config
 
 from pyquaticus.envs.competition_pyquaticus import CompPyquaticusEnv
+import pyquaticus.config as _pq_config
+from simplemarl.pyquaticus_action_map import apply_nrl_action_map
 
 import sys
 import gymnasium as gym
@@ -30,6 +32,24 @@ from torch.distributions.categorical import Categorical
 from torch.utils.tensorboard import SummaryWriter
 import argparse
 
+# Original Pyquaticus discrete map: 8 headings × 2 speeds + no-op = 17 actions.
+# Mutate pyquaticus.config.ACTION_MAP in place so modules that imported the list
+# still reference the same object.
+def _legacy_action_map_entries():
+    out = []
+    for spd in [1.0, 0.5]:
+        for hdg in range(180, -180, -45):
+            out.append([spd, float(hdg)])
+    out.append([0.0, 0.0])
+    return out
+
+
+def apply_legacy_action_map():
+    legacy = _legacy_action_map_entries()
+    _pq_config.ACTION_MAP.clear()
+    _pq_config.ACTION_MAP.extend(legacy)
+
+
 def make_env():
     import pyquaticus.utils.rewards as rew
     rews = {'agent_0':rew.caps_and_grabs,
@@ -40,8 +60,8 @@ def make_env():
             'agent_5':rew.caps_and_grabs}
     mc_config = dict(mctf_config)
     mc_config['render_saving'] = True
-    mc_config['max_time'] = 50000.0
-    env = CompPyquaticusEnv(render_mode='human', config_dict=mctf_config, reward_config=rews)
+    mc_config['max_time'] = 600.0
+    env = CompPyquaticusEnv(render_mode='human', config_dict=mc_config, reward_config=rews)
     return env
 
 def layer_init(layer, std=np.sqrt(2), bias_const=0.0):
@@ -87,7 +107,16 @@ if __name__ == "__main__":
     parser.add_argument('--one_defender', action='store_true', help='If set, only agent_3 will be an active defender; agent_4 and agent_5 will be static. Useful for testing attacker flag captures.')
     parser.add_argument('--stack_defenders', action='store_true', help='If set, all defenders (agent_3/agent_4/agent_5) will spawn at the same fixed location at reset. Best used with --static_defenders to keep them immobile.')
     parser.add_argument('--defender_spawn_xy', type=float, nargs=2, default=None, metavar=('X', 'Y'), help='Override defender spawn location used by --stack_defenders. Coordinates are in env units (meters).')
+    parser.add_argument(
+        '--legacy-action-map',
+        action='store_true',
+        help='Use the original 17-action PyQuaticus map (for old checkpoints only). Default is NRL 26-action map.',
+    )
     args = parser.parse_args()
+    if args.legacy_action_map:
+        apply_legacy_action_map()
+    else:
+        apply_nrl_action_map()
     env = make_env()
     policies = {
         'agent_0': PPO(env.observation_space('agent_0'), env.action_space('agent_0')),
