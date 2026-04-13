@@ -63,7 +63,7 @@ class Args:
     """if toggled, this experiment will be tracked with Weights and Biases"""    
     env_id: str = "Pyquaticus"
     """the id of the environment"""
-    total_timesteps: int = 15000000 # original value is 15000000, changed for testing
+    total_timesteps: int = 480000 # original value is 15000000, changed for testing
     """total timesteps of the experiments"""
     num_envs: int = 1
     """the number of parallel game environments"""
@@ -82,27 +82,34 @@ class Args:
     """the mini-batch size (computed in runtime)"""
     num_iterations: int = 0
     """the number of iterations (computed in runtime)"""
-    to_train: list = field(default_factory=lambda: ['agent_0', 'agent_1', 'agent_2'])
-    """Agent IDs that will be trained (attackers)."""
+    to_train: list = field(
+        default_factory=lambda: [
+            "agent_0",
+            "agent_1",
+            "agent_2",
+            "agent_3",
+            "agent_4",
+            "agent_5",
+        ]
+    )
+    """Agent IDs whose policies are updated. Empty `fixed_agents` + all IDs here = everyone learns when to attack vs defend."""
 
-    fixed_agents: list = field(default_factory=lambda: ['agent_3', 'agent_4', 'agent_5'])
-    """Agent IDs that run a fixed policy (defenders)."""
+    fixed_agents: list = field(default_factory=list)
+    """Agent IDs with frozen policies (eval, no grad). Leave empty so all agents learn from the same team reward."""
 
     fixed_defender_ckpt: str = ""
-    """Optional path to a saved defender policy checkpoint to load (applies to agent_3 policy, shared by agent_4/agent_5)."""
+    """Optional: load weights into agent_3 before freezing (only useful if agent_3 is listed in `fixed_agents`)."""
 
     policies: dict = field(
         default_factory=lambda: {
-            # Attackers (trainable): independent PPO policies by default
-            'agent_0': "init_ppo",
-            'agent_1': "init_ppo",
-            'agent_2': "init_ppo",
-            # Defenders (fixed): share a single PPO policy (agent_3)
-            'agent_3': "init_ppo",
-            'agent_4': "agent_3",
-            'agent_5': "agent_3",
+            "agent_0": "init_ppo",
+            "agent_1": "init_ppo",
+            "agent_2": "init_ppo",
+            "agent_3": "init_ppo",
+            "agent_4": "init_ppo",
+            "agent_5": "init_ppo",
         }
-    )  # Must contain policy for every agent in the PettingZoo env
+    )  # Must contain policy for every agent in the PettingZoo env; use e.g. "agent_0" to share weights between agents
     device:str="cpu"
 def make_env():
     #def thunk():
@@ -155,7 +162,7 @@ if __name__ == "__main__":
             config.device = args.device
             policies[aid] = ppo.PPO(obs_spaces[aid], act_spaces[aid], config)
         else:
-            policies[aid] = policies[args.policies[aid]] # Use agents 3-5
+            policies[aid] = policies[args.policies[aid]]
         if aid in args.to_train:
             buffers[aid] = Buffer(obs_spaces[aid], act_spaces[aid], args.num_envs*args.num_workers, args.num_steps)
             sw[aid] = SummaryWriter(f"runs/{aid}")
@@ -167,12 +174,11 @@ if __name__ == "__main__":
         avg[aid] = 0.0
         #TODO add loading PPO and DQN algorithms
 
-    # Optionally load a fixed defender checkpoint (shared defender policy is agent_3)
     if args.fixed_defender_ckpt:
         state = torch.load(args.fixed_defender_ckpt, map_location=args.device)
-        policies['agent_3'].load_state_dict(state)
+        policies["agent_3"].load_state_dict(state)
 
-    # Freeze fixed agents' policies (prevents accidental optimizer usage / grad tracking)
+    # Freeze any agents listed in fixed_agents (optional scripted / pretrained teammates)
     for aid in args.fixed_agents:
         policies[aid].eval()
         for p in policies[aid].parameters():

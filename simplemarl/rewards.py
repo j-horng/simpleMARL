@@ -1,12 +1,42 @@
 """Project-local reward functions for PyQuaticus training."""
 
+from typing import Optional
+
 import numpy as np
 
 from pyquaticus.utils.rewards import caps_and_grabs
 
+# ---------------------------------------------------------------------------
+# Balancing offense vs defense (same reward for every agent; roles are emergent).
+#
+# Home-defense bonuses only apply when `agent_on_sides` and not carrying the
+# enemy flag, so the same policy still gets offensive signal when pushing or
+# returning a flag from caps_and_grabs.
+#
+# Sparse outcomes there (typical): own grab +0.25, own capture +1.0, mirrored
+# negatives for enemy scores; plus distance-to-flag shaping when not tagged /
+# not carrying.
+#
+# Keep defensive shaping smaller in expectation than scoring over an episode,
+# or everyone camps. Rule of thumb:
+#   - Lower DEFENSE_SHAPING_SCALE (e.g. 0.5–0.7) if agents rarely press the flag.
+#   - Raise CHASE_AWAY_PER_INVADER slightly if clears are rare but offense is fine.
+#   - Enemy grab / cap penalties should still dominate “farming” chase-away.
+#
+# DEFENSE_SHAPING_SCALE scales dense home + chase-away + flag-taken home nudge.
+# ---------------------------------------------------------------------------
+DEFENSE_SHAPING_SCALE = 1.0
+
 # Per-step dense shaping: home agents get a small reward for each opponent currently on our half.
 DENSE_HOME_DEFENSE_PER_INVADER = 0.0025
 DENSE_HOME_DEFENSE_MAX_INVADERS = 3
+
+# Bonus when an opponent was on our side last step and is no longer there (pushed back / retreated /
+# tagged off), but not if they still carry a flag (crossing midline with the flag is a successful raid).
+CHASE_AWAY_PER_INVADER = 0.10
+
+# While our flag is gone, nudge non-carriers toward home (scaled with defense shaping).
+FLAG_TAKEN_HOME_NUDGE = 0.02
 
 
 def _point_on_team_half_plane(pos, side_team_int: int, scrimmage_coords, flag_home) -> bool:
@@ -44,6 +74,60 @@ def _num_invaders_on_my_side(state, my_team: int, scrimmage_coords, flag_home, o
     return n
 
 
+def _count_invaders_left_our_half(
+    prev_state: dict, state: dict, my_team: int, scrimmage_coords, flag_home, opp_inds: set
+) -> int:
+    """Opponents who were on our half-plane last step but are not now, excluding flag carriers."""
+    n = 0
+    for j in opp_inds:
+        prev_on = _point_on_team_half_plane(
+            prev_state["agent_position"][j], my_team, scrimmage_coords, flag_home
+        )
+        now_on = _point_on_team_half_plane(
+            state["agent_position"][j], my_team, scrimmage_coords, flag_home
+        )
+        if not (prev_on and not now_on):
+            continue
+        if bool(state["agent_has_flag"][j]):
+            continue
+        n += 1
+    return n
+
+
+def _eligible_home_defender(state: dict, agent_idx: int) -> bool:
+    return bool(state["agent_on_sides"][agent_idx] and not state["agent_has_flag"][agent_idx])
+
+
+def _dense_home_and_chase_away_bonus(
+    state: dict,
+    prev_state: Optional[dict],
+    my_team: int,
+    scrimmage_coords,
+    fh,
+    opp_inds: set,
+    agent_idx: int,
+) -> float:
+    bonus = 0.0
+    n_inv = _num_invaders_on_my_side(state, my_team, scrimmage_coords, fh, opp_inds)
+    if n_inv > 0 and _eligible_home_defender(state, agent_idx):
+        capped = min(n_inv, DENSE_HOME_DEFENSE_MAX_INVADERS)
+        bonus += DENSE_HOME_DEFENSE_PER_INVADER * capped
+
+    if prev_state is None:
+        return DEFENSE_SHAPING_SCALE * bonus
+    cap_delta = np.asarray(state["captures"], dtype=np.int64) - np.asarray(
+        prev_state["captures"], dtype=np.int64
+    )
+    if np.any(cap_delta > 0):
+        return bonus
+    left = _count_invaders_left_our_half(
+        prev_state, state, my_team, scrimmage_coords, fh, opp_inds
+    )
+    if left > 0 and _eligible_home_defender(state, agent_idx):
+        bonus += CHASE_AWAY_PER_INVADER * left
+    return DEFENSE_SHAPING_SCALE * bonus
+
+
 def balanced_caps_and_grabs(
     agent_id: str,
     team,
@@ -65,6 +149,7 @@ def balanced_caps_and_grabs(
     - Extra credit for personally tagging an opponent carrying your flag.
     - Mild positioning signal: stay home while your flag is threatened.
     - Dense shaping: small per-step reward while on home turf and opponents are on our half.
+    - Chase-away: bonus when an opponent leaves our half without carrying a flag (defensive pressure).
     """
     reward = caps_and_grabs(
         agent_id,
@@ -106,21 +191,17 @@ def balanced_caps_and_grabs(
 
     fh = state["flag_home"]
     opp_inds = _opponent_agent_indices(agent_inds_of_team, my_team)
-    n_inv = _num_invaders_on_my_side(state, my_team, scrimmage_coords, fh, opp_inds)
-    if (
-        n_inv > 0
-        and state["agent_on_sides"][agent_idx]
-        and not state["agent_has_flag"][agent_idx]
-    ):
-        capped = min(n_inv, DENSE_HOME_DEFENSE_MAX_INVADERS)
-        reward += DENSE_HOME_DEFENSE_PER_INVADER * capped
+    reward += _dense_home_and_chase_away_bonus(
+        state, prev_state, my_team, scrimmage_coords, fh, opp_inds, agent_idx
+    )
 
     # If your flag is taken, nudge non-carriers home to defend. Skip agents who are
     # carrying the opponent's flag — they must stay off-side until they can score.
     if state["flag_taken"][my_team] and not state["agent_has_flag"][agent_idx]:
+        nudge = FLAG_TAKEN_HOME_NUDGE * DEFENSE_SHAPING_SCALE
         if state["agent_on_sides"][agent_idx]:
-            reward += 0.02
+            reward += nudge
         else:
-            reward -= 0.02
+            reward -= nudge
 
     return reward
