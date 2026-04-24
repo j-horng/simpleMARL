@@ -19,7 +19,7 @@ from pyquaticus.mctf26_config import config_dict_std as mctf_config
 
 from pyquaticus.envs.competition_pyquaticus import CompPyquaticusEnv
 import pyquaticus.config as _pq_config
-from simplemarl.pyquaticus_action_map import apply_nrl_25_action_map, apply_nrl_action_map
+from simplemarl.pyquaticus_action_map import apply_nrl_action_map
 
 import sys
 import gymnasium as gym
@@ -110,20 +110,13 @@ if __name__ == "__main__":
     parser.add_argument(
         '--legacy-action-map',
         action='store_true',
-        help='Use the original 17-action PyQuaticus map (for old checkpoints only).',
-    )
-    parser.add_argument(
-        '--nrl-26-action-map',
-        action='store_true',
-        help='Use the NRL 26-action map (includes no-op). Default is NRL 25-action map.',
+        help='Use the original 17-action PyQuaticus map (for old checkpoints only). Default is NRL 26-action map.',
     )
     args = parser.parse_args()
     if args.legacy_action_map:
         apply_legacy_action_map()
-    elif args.nrl_26_action_map:
-        apply_nrl_action_map()
     else:
-        apply_nrl_25_action_map()
+        apply_nrl_action_map()
     env = make_env()
     policies = {
         'agent_0': PPO(env.observation_space('agent_0'), env.action_space('agent_0')),

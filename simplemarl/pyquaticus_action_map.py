@@ -20,11 +20,6 @@ def nrl_action_map_entries():
     return out
 
 
-def nrl_25_action_map_entries():
-    """Full-speed steering at each heading (25 actions, no no-op)."""
-    return [[1.0, float(h)] for h in nrl_recommended_headings()]
-
-
 def apply_action_map_entries(entries):
     """Patch installed pyquaticus.config.ACTION_MAP in place (same list object importers keep)."""
     _pq_config.ACTION_MAP.clear()
@@ -33,7 +28,3 @@ def apply_action_map_entries(entries):
 
 def apply_nrl_action_map():
     apply_action_map_entries(nrl_action_map_entries())
-
-
-def apply_nrl_25_action_map():
-    apply_action_map_entries(nrl_25_action_map_entries())
