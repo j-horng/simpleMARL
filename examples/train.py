@@ -2,6 +2,7 @@
 import sys
 import os
 import time 
+from functools import partial
 from dataclasses import dataclass, field
 import tyro 
 from torch.utils.tensorboard import SummaryWriter
@@ -15,7 +16,7 @@ from simplemarl.vecenv import SerialVecEnv, ParallelVecEnv, SubProcVecEnv
 from simplemarl.algorithms import ppo
 from simplemarl.buffer import Buffer
 from simplemarl.parallel_pet_wrapper import GymnasiumToPettingZooParallel
-from simplemarl.pyquaticus_action_map import apply_nrl_action_map
+from simplemarl.pyquaticus_action_map import apply_nrl_25_action_map, apply_nrl_action_map
 
 #Pyquaticus Environment Imports
 from pyquaticus import pyquaticus_v0
@@ -62,7 +63,7 @@ class Args:
     """if toggled, this experiment will be tracked with Weights and Biases"""    
     env_id: str = "Pyquaticus"
     """the id of the environment"""
-    total_timesteps: int = 15000000 # original value is 15000000, changed for testing
+    total_timesteps: int = 240000 # original value is 15000000, changed for testing
     """total timesteps of the experiments"""
     num_envs: int = 1
     """the number of parallel game environments"""
@@ -103,9 +104,14 @@ class Args:
         }
     )  # Must contain policy for every agent in the PettingZoo env
     device:str="cpu"
-def make_env():
+    use_26_action_map: bool = False
+    """If true, include no-op in NRL action map (26 actions). Default is 25-action map."""
+def make_env(use_26_action_map: bool = False):
     #def thunk():
-    apply_nrl_action_map()
+    if use_26_action_map:
+        apply_nrl_action_map()
+    else:
+        apply_nrl_25_action_map()
     import pyquaticus.utils.rewards as rew
     rews = {'agent_0':rew.caps_and_grabs,
             'agent_1':rew.caps_and_grabs,
@@ -130,7 +136,8 @@ if __name__ == "__main__":
     torch.backends.cudnn.deterministic = args.torch_deterministic
 
     global_step = 0
-    env = make_env() #
+    env_fn = partial(make_env, args.use_26_action_map)
+    env = env_fn() #
     obs_spaces = env.observation_spaces
     act_spaces = env.action_spaces
     buffers = {}
@@ -177,7 +184,7 @@ if __name__ == "__main__":
         policies[aid].eval()
         for p in policies[aid].parameters():
             p.requires_grad_(False)
-    envs = SubProcVecEnv(make_env, args.num_workers, args.num_envs)
+    envs = SubProcVecEnv(env_fn, args.num_workers, args.num_envs)
 
     for iteration in range(1, args.num_iterations+1):
         start_time = time.time()
